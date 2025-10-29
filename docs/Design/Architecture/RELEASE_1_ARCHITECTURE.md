@@ -66,6 +66,16 @@ Release 1 implements the Core Authentication MVP with 7 user stories (23 story p
 └─────────────────────────────────────────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
+│                   Identity & Authentication Layer                │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │  Azure Entra (Azure AD B2C)                            │    │
+│  │  - Social Identity Providers (Future: Release 4)       │    │
+│  │  - OAuth 2.0 / OpenID Connect                          │    │
+│  │  - External Identity Federation                        │    │
+│  └────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                      Application Layer                           │
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │  .NET 10 Web API                                       │    │
@@ -123,6 +133,248 @@ Email Link → React Page → API Controller → Query Handler
   → UserService → Update Verification Status → Success Page
 ```
 
+#### Social Authentication Flow (Future: Release 4 with Azure Entra)
+```
+User → "Sign in with Google/Microsoft" → Azure Entra (Azure AD B2C)
+  → OAuth Provider → User Consent → Authorization Code
+  → Azure Entra → Token Exchange → API Controller
+  → Create/Link User Account → JWT Generation → React App
+```
+
+### Azure Entra Integration
+
+**Azure Entra (formerly Azure Active Directory)** is Microsoft's cloud-based identity and access management service. In this application, we use **Azure AD B2C** (Business to Consumer), a specialized version of Azure Entra designed for customer-facing applications.
+
+#### Role in the Architecture
+
+**Release 1 (Current):**
+- Azure Entra infrastructure is provisioned but not actively used
+- Foundation is established for future social authentication
+- Configuration prepared for OAuth 2.0 / OpenID Connect flows
+
+**Release 4 (Future - Social Authentication):**
+- Azure AD B2C will handle social identity providers (Google, Microsoft, GitHub)
+- Implements OAuth 2.0 and OpenID Connect protocols
+- Manages external identity federation
+- Provides centralized user consent management
+- Handles token issuance and validation for social logins
+
+#### Azure Entra Components
+
+1. **Azure AD B2C Tenant**
+   - Separate tenant for customer identities
+   - Custom branding and user flows
+   - Policy-based configuration
+
+2. **Identity Providers**
+   - Google (OAuth 2.0)
+   - Microsoft Account (OAuth 2.0)
+   - GitHub (Future consideration)
+   - Facebook (Future consideration)
+
+3. **User Flows**
+   - Sign-up and sign-in combined flow
+   - Profile editing flow
+   - Password reset flow (integrated with our custom flow)
+
+4. **Application Registration**
+   - OAuth client credentials
+   - Redirect URIs configuration
+   - API permissions and scopes
+
+#### Integration Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     User Browser                        │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│              React Frontend Application                 │
+│  - OAuth login button click                             │
+│  - Redirect to Azure AD B2C                             │
+│  - Receive authorization code                           │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│          Azure Entra (Azure AD B2C)                     │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  1. User Flow Execution                        │   │
+│  │  2. Social Identity Provider Selection         │   │
+│  │  3. External OAuth Flow (Google/Microsoft)     │   │
+│  │  4. User Consent                                │   │
+│  │  5. Token Generation (ID Token + Access Token) │   │
+│  └────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│              .NET 10 Web API Backend                    │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  1. Validate Azure AD B2C token                │   │
+│  │  2. Extract user claims (email, name, etc.)    │   │
+│  │  3. Create/link user in CosmosDB               │   │
+│  │  4. Generate application JWT token             │   │
+│  │  5. Return to client with session              │   │
+│  └────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Authentication Strategy: Hybrid Approach
+
+Our architecture uses a **hybrid authentication strategy** that combines:
+
+1. **Custom JWT Authentication (Release 1)**
+   - Email/password authentication
+   - Application-controlled JWT tokens
+   - Full control over token lifetime and claims
+   - Suitable for standard user registration
+
+2. **Azure Entra B2C (Release 4)**
+   - Social identity provider integration
+   - OAuth 2.0 / OpenID Connect standard protocols
+   - Centralized consent management
+   - Enterprise-grade security
+
+3. **Unified User Identity**
+   - All users (email/password or social) stored in CosmosDB Users collection
+   - Social provider ID linked to user account
+   - Single user profile regardless of authentication method
+   - Seamless switching between authentication methods
+
+#### Azure Entra Configuration
+
+**Required Azure AD B2C Setup:**
+```
+Tenant Name: todoapp.onmicrosoft.com (or custom domain)
+Subscription: Azure subscription with B2C resource
+
+Identity Providers:
+  - Google:
+    - Client ID: <from Google Cloud Console>
+    - Client Secret: <stored in Key Vault>
+
+  - Microsoft Account:
+    - Client ID: <from Azure Portal>
+    - Client Secret: <stored in Key Vault>
+
+User Flows:
+  - B2C_1_SignUpSignIn: Combined sign-up and sign-in flow
+  - B2C_1_ProfileEdit: Profile editing flow
+  - B2C_1_PasswordReset: Password reset flow (if using B2C)
+
+Application Registration:
+  - Name: ToDo App Frontend
+  - Reply URLs:
+    - https://todoapp.com/auth/callback
+    - http://localhost:5173/auth/callback (development)
+  - API Permissions:
+    - openid, profile, email, offline_access
+```
+
+#### Backend Integration Code (Future - Release 4)
+
+**NuGet Packages:**
+```bash
+dotnet add package Microsoft.Identity.Web
+dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer
+```
+
+**Startup Configuration:**
+```csharp
+services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(options =>
+    {
+        Configuration.Bind("AzureAdB2C", options);
+        options.TokenValidationParameters.NameClaimType = "name";
+    },
+    options => { Configuration.Bind("AzureAdB2C", options); });
+```
+
+**appsettings.json:**
+```json
+{
+  "AzureAdB2C": {
+    "Instance": "https://todoapp.b2clogin.com",
+    "ClientId": "<application-id>",
+    "Domain": "todoapp.onmicrosoft.com",
+    "SignUpSignInPolicyId": "B2C_1_SignUpSignIn"
+  }
+}
+```
+
+#### Security Considerations
+
+1. **Token Validation**
+   - Azure AD B2C tokens validated using Microsoft.Identity.Web
+   - Signature verification with Azure's public keys
+   - Issuer and audience validation
+
+2. **Secrets Management**
+   - OAuth client secrets stored in Azure Key Vault
+   - Never expose secrets in frontend code
+   - Rotate secrets periodically
+
+3. **CORS Configuration**
+   - Whitelist only authorized domains
+   - Azure AD B2C custom domains for branding
+
+4. **Rate Limiting**
+   - Apply same rate limiting to social auth endpoints
+   - Prevent abuse of OAuth flows
+
+#### Benefits of Azure Entra B2C
+
+1. **Enterprise Security**
+   - Microsoft-managed security infrastructure
+   - Automatic patching and updates
+   - Compliance certifications (SOC 2, ISO 27001)
+
+2. **Scalability**
+   - Handles millions of authentication requests
+   - Global distribution
+   - 99.9% SLA
+
+3. **User Experience**
+   - One-click social sign-in
+   - No password to remember
+   - Trusted identity providers
+
+4. **Compliance**
+   - GDPR compliant
+   - Data residency options
+   - Privacy controls
+
+#### Cost Considerations
+
+**Azure AD B2C Pricing (as of 2025):**
+- First 50,000 monthly active users: Free
+- Additional MAU (50,001 - 100,000): $0.00325 per MAU
+- MFA authentications: $0.03 per authentication
+
+**Estimated Monthly Cost (10,000 users):**
+- Base cost: $0 (within free tier)
+- MFA (assuming 30% adoption, 3 logins/month): ~$270
+
+#### Migration Path
+
+**Release 1 → Release 4:**
+1. Provision Azure AD B2C tenant
+2. Configure identity providers (Google, Microsoft)
+3. Create user flows and policies
+4. Register application
+5. Update frontend to add social login buttons
+6. Implement backend token validation
+7. Test social authentication flow
+8. Deploy and monitor
+
+**Backward Compatibility:**
+- Existing email/password users continue to work
+- Users can link social accounts to existing profiles
+- No breaking changes to authentication flow
+
 ### Technology Stack Summary
 
 | Layer | Technology | Purpose |
@@ -134,6 +386,7 @@ Email Link → React Page → API Controller → Query Handler
 | Forms | Formik + Yup | Form handling and validation |
 | HTTP Client | Axios | API communication |
 | Routing | React Router | Client-side routing |
+| Identity | Azure Entra (Azure AD B2C) | Social authentication, OAuth 2.0 (Release 4) |
 | Backend | .NET 10 | Web API framework |
 | Architecture | DDD + CQRS | Domain-driven design patterns |
 | Primary DB | Azure CosmosDB | Document storage |
@@ -1517,6 +1770,275 @@ resource usersContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
   }
 }
 ```
+
+### Azure Entra (Azure AD B2C) Configuration
+
+**Note:** Azure AD B2C infrastructure is provisioned in Release 1 but actively used starting in Release 4 for social authentication.
+
+#### Azure AD B2C Resource Creation
+
+Azure AD B2C tenants are created through the Azure Portal rather than Bicep due to their special nature as separate AAD tenants. However, we document the configuration here:
+
+**Portal Creation Steps:**
+1. Navigate to Azure Portal → Create a resource
+2. Search for "Azure Active Directory B2C"
+3. Click "Create a new Azure AD B2C Tenant"
+4. Choose "Create a new Azure AD B2C Tenant"
+5. Configure:
+   - Organization name: ToDo App
+   - Initial domain name: todoapp (results in todoapp.onmicrosoft.com)
+   - Country/Region: United States
+   - Subscription: Select your subscription
+   - Resource group: rg-todoapp-prod
+
+**Bicep for B2C App Registration (Alternative approach using Microsoft Graph):**
+
+While the tenant itself must be created via portal, we can manage some B2C resources via Bicep:
+
+```bicep
+// Note: This requires Microsoft Graph API and proper permissions
+// For initial setup, portal configuration is recommended
+
+param b2cTenantName string = 'todoapp'
+param environment string = 'prod'
+param frontendUrl string = 'https://todoapp.com'
+
+// Application Registration for Frontend
+resource b2cAppRegistration 'Microsoft.AzureActiveDirectory/b2cDirectories/applications@2021-04-01' = {
+  name: 'todoapp-frontend-${environment}'
+  properties: {
+    displayName: 'ToDo App Frontend (${environment})'
+    replyUrls: [
+      '${frontendUrl}/auth/callback'
+      environment == 'dev' ? 'http://localhost:5173/auth/callback' : null
+    ]
+    publicClient: false
+    oauth2AllowImplicitFlow: false
+    oauth2AllowIdTokenImplicitFlow: true
+    requiredResourceAccess: [
+      {
+        resourceAppId: '00000003-0000-0000-c000-000000000000' // Microsoft Graph
+        resourceAccess: [
+          {
+            id: '37f7f235-527c-4136-accd-4a02d197296e' // openid
+            type: 'Scope'
+          }
+          {
+            id: '7427e0e9-2fba-42fe-b0c0-848c9e6a8182' // offline_access
+            type: 'Scope'
+          }
+          {
+            id: '14dad69e-099b-42c9-810b-d002981feec1' // profile
+            type: 'Scope'
+          }
+          {
+            id: '64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0' // email
+            type: 'Scope'
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### Manual Configuration (Recommended for Release 1)
+
+**1. Identity Providers Setup (Release 4):**
+
+**Google OAuth Configuration:**
+- Go to https://console.cloud.google.com/
+- Create OAuth 2.0 credentials
+- Configure redirect URI: `https://todoapp.b2clogin.com/todoapp.onmicrosoft.com/oauth2/authresp`
+- Store Client ID and Secret in Azure Key Vault
+
+**Microsoft Account Configuration:**
+- Microsoft Account is pre-configured in Azure AD B2C
+- No additional setup required for basic Microsoft login
+
+**2. User Flows Configuration:**
+
+Create the following user flows in Azure Portal → Azure AD B2C → User flows:
+
+**Sign-up and Sign-in Flow:**
+```
+Name: B2C_1_SignUpSignIn
+Type: Sign up and sign in (Recommended)
+Identity providers:
+  - Email signup (Release 1)
+  - Google (Release 4)
+  - Microsoft Account (Release 4)
+User attributes to collect:
+  - Display Name
+  - Email Address
+Claims to return:
+  - Display Name
+  - Email Addresses
+  - Identity Provider
+  - User's Object ID
+Page layouts: Default (customizable in future)
+```
+
+**Profile Editing Flow:**
+```
+Name: B2C_1_ProfileEdit
+Type: Profile editing
+Attributes:
+  - Display Name
+  - Job Title (optional)
+Claims: Same as sign-in flow
+```
+
+**Password Reset Flow:**
+```
+Name: B2C_1_PasswordReset
+Type: Password reset
+Verification: Email
+Claims: Email Addresses, User's Object ID
+```
+
+**3. Application Registration:**
+
+Register the frontend application in Azure AD B2C:
+
+```
+App Registration:
+  Name: ToDo App Frontend
+  Supported account types: Accounts in any identity provider or organizational directory (for authenticating users with user flows)
+  Redirect URI:
+    - Platform: Single-page application (SPA)
+    - URIs:
+      - https://todoapp.com/auth/callback
+      - https://todoapp-staging.azurewebsites.net/auth/callback
+      - http://localhost:5173/auth/callback (development)
+
+API Permissions:
+  - Microsoft Graph:
+    - openid (delegated)
+    - offline_access (delegated)
+    - profile (delegated)
+    - email (delegated)
+
+Certificates & secrets:
+  - (Not needed for SPA with PKCE, but can create client secret for server-side flow)
+
+Authentication:
+  - Enable PKCE: Yes
+  - Allow public client flows: No
+  - Supported account types: Accounts in any identity provider
+```
+
+**4. Custom Branding (Optional - Future Enhancement):**
+
+Azure AD B2C allows custom HTML/CSS for sign-in pages:
+- Upload custom page layouts to Azure Blob Storage
+- Configure page layout URLs in user flows
+- Apply company branding (logo, colors, background)
+
+#### Key Vault Secret Storage
+
+Store Azure AD B2C configuration in Key Vault:
+
+```bicep
+resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' existing = {
+  name: 'kv-todoapp-${environment}'
+}
+
+// Store B2C configuration as secrets
+resource azureAdB2CClientId 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'AzureAdB2C--ClientId'
+  properties: {
+    value: '<application-id-from-app-registration>'
+  }
+}
+
+resource azureAdB2CDomain 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'AzureAdB2C--Domain'
+  properties: {
+    value: '${b2cTenantName}.onmicrosoft.com'
+  }
+}
+
+resource azureAdB2CInstance 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'AzureAdB2C--Instance'
+  properties: {
+    value: 'https://${b2cTenantName}.b2clogin.com'
+  }
+}
+
+// Google OAuth secrets (Release 4)
+resource googleClientId 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'GoogleOAuth--ClientId'
+  properties: {
+    value: '<from-google-cloud-console>'
+  }
+}
+
+resource googleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-02-01' = {
+  parent: keyVault
+  name: 'GoogleOAuth--ClientSecret'
+  properties: {
+    value: '<from-google-cloud-console>'
+    contentType: 'text/plain'
+  }
+}
+```
+
+#### Cost Management
+
+**Azure AD B2C Pricing:**
+- Free tier: 50,000 authentications per month
+- Premium P1: $0.00325 per user per month (beyond free tier)
+- Premium P2: $0.013 per user per month (advanced security features)
+
+**Recommendations:**
+- Start with free tier for development and initial production
+- Monitor Monthly Active Users (MAU)
+- Upgrade to Premium P1 when exceeding free tier or needing advanced features
+- Use Azure Cost Management alerts to track B2C costs
+
+#### Monitoring & Logging
+
+**Enable Diagnostic Settings for Azure AD B2C:**
+```bicep
+// Log Analytics workspace for B2C logs
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = {
+  name: 'log-todoapp-${environment}'
+}
+
+// Note: B2C diagnostic settings configured via Portal
+// Logs to capture:
+//   - AuditLogs (sign-ins, user operations)
+//   - SignInLogs (authentication events)
+//   - RiskyUsers (identity protection)
+//   - UserRiskEvents (suspicious activities)
+```
+
+**Key Metrics to Monitor:**
+- Total sign-ins
+- Failed sign-ins (by reason)
+- Sign-ins by identity provider
+- User flow completion rate
+- Token issuance rate
+- MFA challenge rate (future)
+
+#### Security Configuration
+
+**Conditional Access (Premium P1 feature - Future):**
+- Require MFA for risky sign-ins
+- Block legacy authentication protocols
+- Restrict access by location
+- Require compliant devices
+
+**Identity Protection (Premium P2 feature - Future):**
+- Risk-based conditional access
+- Automated risk remediation
+- Anomaly detection
+- Leaked credential detection
 
 ### Azure Functions
 

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Azure.Comms.EmailRelay.Functions.Models;
 
 /// <summary>

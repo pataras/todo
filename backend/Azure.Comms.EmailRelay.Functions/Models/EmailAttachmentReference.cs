@@ -14,6 +14,12 @@ public sealed class EmailAttachmentReference
     public string BlobName { get; set; } = string.Empty;
 
     /// <summary>
+    /// File name presented to the email recipient. Defaults to the blob name when omitted.
+    /// </summary>
+    [MaxLength(1024)]
+    public string? FileName { get; set; }
+
+    /// <summary>
     /// Mime type for the attachment content. Provides hints for downstream processing.
     /// </summary>
     public string? ContentType { get; set; }
